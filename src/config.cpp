@@ -286,24 +286,6 @@ bool LoadConfiguration(const std::string& config_path, const std::string& base_d
                                           std::numeric_limits<std::uint16_t>::max(), error_message)) {
         return false;
       }
-    } else {
-      if (!ReadOptionalString(root, "file_path", &parsed.file.path, error_message)) {
-        return false;
-      }
-      if (!ReadOptionalNonNegativeInteger(root, "rotation_hour", &parsed.file.rotation_hour, 23, error_message)) {
-        return false;
-      }
-      if (!ReadOptionalNonNegativeInteger(root, "rotation_minute", &parsed.file.rotation_minute, 59, error_message)) {
-        return false;
-      }
-      if (!ReadOptionalNonNegativeInteger(root, "retention_days", &parsed.file.retention_days,
-                                          std::numeric_limits<std::uint16_t>::max(), error_message)) {
-        return false;
-      }
-      if (!ReadOptionalNonNegativeInteger(root, "max_files", &parsed.file.retention_days,
-                                          std::numeric_limits<std::uint16_t>::max(), error_message)) {
-        return false;
-      }
     }
   } catch (const std::exception& error) {
     if (error_message != nullptr) {

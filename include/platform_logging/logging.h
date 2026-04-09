@@ -146,6 +146,10 @@ void LogFormatKv(Level level,
     }                                                                                     \
   } while (false)
 
+#define PLATFORM_LOG_FUNCTION_ENTER() PLATFORM_LOG_TRACE("Entering {}", __FUNCTION__)
+
+#define PLATFORM_LOG_FUNCTION_EXIT() PLATFORM_LOG_TRACE("Exiting {}", __FUNCTION__)
+
 #define PLATFORM_LOG_DEBUG(...)                                                           \
   do                                                                                      \
   {                                                                                       \
