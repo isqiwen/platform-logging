@@ -1,0 +1,64 @@
+# Default: normalize text files to LF in the repository and working tree.
+* text=auto eol=lf
+
+# Explicit text file types
+*.c       text eol=lf
+*.cc      text eol=lf
+*.cp      text eol=lf
+*.cpp     text eol=lf
+*.cxx     text eol=lf
+*.h       text eol=lf
+*.hh      text eol=lf
+*.hpp     text eol=lf
+*.hxx     text eol=lf
+*.ipp     text eol=lf
+*.ixx     text eol=lf
+*.cppm    text eol=lf
+*.tpp     text eol=lf
+
+*.py      text eol=lf
+*.cmake   text eol=lf
+CMakeLists.txt text eol=lf
+
+*.sh      text eol=lf
+*.bash    text eol=lf
+*.zsh     text eol=lf
+*.ps1     text eol=lf
+*.psm1    text eol=lf
+*.psd1    text eol=lf
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+
+*.md      text eol=lf
+*.txt     text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.json    text eol=lf
+*.toml    text eol=lf
+*.xml     text eol=lf
+
+# Treat common binary assets as binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.bmp     binary
+*.ico     binary
+*.pdf     binary
+*.zip     binary
+*.7z      binary
+*.tar     binary
+*.gz      binary
+*.tgz     binary
+*.bz2     binary
+*.xz      binary
+
+*.a       binary
+*.lib     binary
+*.so      binary
+*.dylib   binary
+*.dll     binary
+*.exe     binary
+*.obj     binary
+*.o       binary
+*.pdb     binary

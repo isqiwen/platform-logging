@@ -1,0 +1,149 @@
+{
+  "version": 8,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "linux-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "generator": "Ninja"
+    },
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      }
+    },
+    {
+      "name": "linux-release",
+      "inherits": "linux-base",
+      "binaryDir": "${sourceDir}/out/build/linux-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/linux-release",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/out/build/linux-release/conan_toolchain.cmake"
+      }
+    },
+    {
+      "name": "linux-debug",
+      "inherits": "linux-base",
+      "binaryDir": "${sourceDir}/out/build/linux-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/linux-debug",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/out/build/linux-debug/conan_toolchain.cmake"
+      }
+    },
+    {
+      "name": "windows-vs2022-release",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/out/build/windows-vs2022-release",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/windows-vs2022-release",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/out/build/windows-vs2022-release/conan_toolchain.cmake"
+      }
+    },
+    {
+      "name": "windows-vs2022-debug",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/out/build/windows-vs2022-debug",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/windows-vs2022-debug",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/out/build/windows-vs2022-debug/conan_toolchain.cmake"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release",
+      "jobs": 0
+    },
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug",
+      "jobs": 0
+    },
+    {
+      "name": "linux-release-install",
+      "configurePreset": "linux-release",
+      "targets": [
+        "install"
+      ],
+      "jobs": 0
+    },
+    {
+      "name": "windows-vs2022-release",
+      "configurePreset": "windows-vs2022-release",
+      "configuration": "Release",
+      "jobs": 0
+    },
+    {
+      "name": "windows-vs2022-debug",
+      "configurePreset": "windows-vs2022-debug",
+      "configuration": "Debug",
+      "jobs": 0
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-release-install-smoke",
+      "configurePreset": "linux-release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "name": "platform_logging_install_smoke"
+        }
+      }
+    },
+    {
+      "name": "windows-vs2022-release",
+      "configurePreset": "windows-vs2022-release",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "logger_name": "platform_logging",
+  "level": "info",
+  "flush_level": "warn",
+  "console": true,
+  "async": false,
+  "queue_size": 8192,
+  "output_format": "text",
+  "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%P:%t] [%n] [%s:%#] %v",
+  "file": {
+    "enabled": true,
+    "path": "logs/platform_logging.log",
+    "retention_days": 30
+  }
+}
