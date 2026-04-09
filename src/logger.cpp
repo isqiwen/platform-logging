@@ -201,6 +201,31 @@ void ConfigureSinkFormattersUnlocked(State& state) {
   }
 }
 
+void FlushUnlocked(State& state) noexcept {
+  if (state.logger == nullptr) {
+    return;
+  }
+
+  try {
+    state.logger->flush();
+  } catch (...) {
+    return;
+  }
+
+  if (state.configuration.async && state.thread_pool != nullptr) {
+    while (state.thread_pool->queue_size() != 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }
+
+  for (const auto& sink : state.sinks) {
+    try {
+      sink->flush();
+    } catch (...) {
+    }
+  }
+}
+
 bool ValidateConfiguration(const Configuration& configuration, std::string* error_message) {
   if (configuration.logger_name.empty()) {
     if (error_message != nullptr) {
@@ -249,11 +274,7 @@ bool ValidateConfiguration(const Configuration& configuration, std::string* erro
 }
 
 void ResetStateUnlocked(State& state) noexcept {
-  if (state.logger != nullptr) {
-    try {
-      state.logger->flush();
-    } catch (...) {}
-  }
+  FlushUnlocked(state);
 
   state.logger.reset();
   state.sinks.clear();
@@ -324,6 +345,12 @@ bool Configure(const std::string& config_path, const std::string& base_dir, std:
     return false;
   }
   return Configure(configuration, error_message);
+}
+
+void Flush() {
+  State& state = GlobalState();
+  std::unique_lock<std::shared_mutex> lock(state.mutex);
+  FlushUnlocked(state);
 }
 
 void Shutdown() {

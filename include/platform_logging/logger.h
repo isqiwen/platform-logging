@@ -13,6 +13,8 @@ namespace platform_logging {
 PLATFORM_LOGGING_API bool Configure(const Configuration& configuration, std::string* error_message = nullptr);
 PLATFORM_LOGGING_API bool Configure(const std::string& config_path, const std::string& base_dir,
                                     std::string* error_message = nullptr);
+// Flush() blocks new Log() calls briefly, drains pending async work, and flushes all active sinks.
+PLATFORM_LOGGING_API void Flush();
 // Shutdown() waits for in-flight Log() calls to finish, flushes the active logger, and resets the library state.
 PLATFORM_LOGGING_API void Shutdown();
 
