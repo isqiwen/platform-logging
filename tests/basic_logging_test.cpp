@@ -63,6 +63,10 @@ int main() {
     std::cerr << "Unexpected configuration snapshot before shutdown\n";
     return 1;
   }
+  if (!snapshot_before_shutdown.console_color || snapshot_before_shutdown.async_worker_count != 1) {
+    std::cerr << "Unexpected default console/async worker configuration before shutdown\n";
+    return 1;
+  }
   if (spdlog::default_logger() != original_default_logger) {
     std::cerr << "platform_logging should not replace spdlog default logger\n";
     return 1;
@@ -92,7 +96,8 @@ int main() {
   }
   const platform_logging::Configuration snapshot_after_shutdown = platform_logging::CurrentConfiguration();
   if (snapshot_after_shutdown.logger_name != "platform_logging" ||
-      snapshot_after_shutdown.file.path != "logs/platform_logging.log") {
+      snapshot_after_shutdown.file.path != "logs/platform_logging.log" || !snapshot_after_shutdown.console_color ||
+      snapshot_after_shutdown.async_worker_count != 1) {
     std::cerr << "Unexpected configuration snapshot after shutdown\n";
     return 1;
   }

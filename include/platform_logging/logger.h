@@ -3,6 +3,8 @@
 #include "platform_logging/config.h"
 #include "platform_logging/field.h"
 
+#include <spdlog/fmt/fmt.h>
+
 #include <initializer_list>
 #include <source_location>
 #include <string>
@@ -25,5 +27,22 @@ PLATFORM_LOGGING_API void Log(Level level, std::string_view message, const Field
                               const std::source_location& location = std::source_location::current());
 PLATFORM_LOGGING_API void Log(Level level, std::string_view message, std::initializer_list<Field> fields,
                               const std::source_location& location = std::source_location::current());
+
+namespace detail {
+
+struct LogSite {
+  void* logger = nullptr;
+  OutputFormat output_format = OutputFormat::kText;
+};
+
+[[nodiscard]] PLATFORM_LOGGING_API bool BeginLog(Level level, LogSite* site) noexcept;
+PLATFORM_LOGGING_API void EndLog(LogSite* site) noexcept;
+PLATFORM_LOGGING_API void LogMessage(const LogSite& site, Level level, std::string_view message, const Fields& fields,
+                                     const std::source_location& location);
+PLATFORM_LOGGING_API void LogFormatted(const LogSite& site, Level level, const Fields* fields,
+                                       const std::source_location& location, fmt::string_view format_string,
+                                       fmt::format_args args);
+
+} // namespace detail
 
 } // namespace platform_logging

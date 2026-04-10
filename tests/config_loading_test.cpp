@@ -60,5 +60,51 @@ int main() {
     return 1;
   }
 
+  const std::filesystem::path valid_config_path = build_root / "valid_config.json";
+  if (!platform_logging_test::WriteFile(
+        valid_config_path,
+        R"({
+  "logger_name": "config_test",
+  "console": true,
+  "console_color": false,
+  "async": true,
+  "queue_size": 2048,
+  "async_worker_count": 3,
+  "output_format": "text",
+  "file": {
+    "enabled": false
+  }
+})")) {
+    std::cerr << "Failed to write valid config\n";
+    return 1;
+  }
+  if (!platform_logging::LoadConfiguration(valid_config_path.string(), build_root.string(), &configuration,
+                                           &error_message)) {
+    std::cerr << "LoadConfiguration should accept console_color and async_worker_count: " << error_message << '\n';
+    return 1;
+  }
+  if (configuration.console_color) {
+    std::cerr << "console_color should load as false\n";
+    return 1;
+  }
+  if (!configuration.async || configuration.async_worker_count != 3 || configuration.queue_size != 2048) {
+    std::cerr << "Unexpected async configuration values\n";
+    return 1;
+  }
+
+  platform_logging::Configuration invalid_configuration;
+  invalid_configuration.console = true;
+  invalid_configuration.file.enabled = false;
+  invalid_configuration.async = true;
+  invalid_configuration.async_worker_count = 0;
+  if (platform_logging::Configure(invalid_configuration, &error_message)) {
+    std::cerr << "Configure should reject async_worker_count=0 when async is enabled\n";
+    return 1;
+  }
+  if (error_message.find("async_worker_count") == std::string::npos) {
+    std::cerr << "Unexpected async_worker_count validation error message\n";
+    return 1;
+  }
+
   return 0;
 }

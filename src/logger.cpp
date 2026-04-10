@@ -1,6 +1,8 @@
 #include "platform_logging/logger.h"
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <ctime>
 #include <filesystem>
@@ -15,8 +17,8 @@
 #include <spdlog/pattern_formatter.h>
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/stdout_sinks.h>
 #include <spdlog/spdlog.h>
-#include <shared_mutex>
 #include <sstream>
 #include <thread>
 
@@ -34,11 +36,16 @@ namespace fs = std::filesystem;
 namespace {
 
 struct State {
-  mutable std::shared_mutex mutex;
+  mutable std::mutex mutex;
+  std::condition_variable no_active_logs;
   Configuration configuration;
   std::vector<spdlog::sink_ptr> sinks;
   std::shared_ptr<spdlog::logger> logger;
   std::shared_ptr<spdlog::details::thread_pool> thread_pool;
+  std::atomic<spdlog::logger*> published_logger{nullptr};
+  std::atomic<Level> published_level{Level::kOff};
+  std::atomic<OutputFormat> published_output_format{OutputFormat::kText};
+  std::atomic<std::size_t> active_log_calls{0};
   bool configured = false;
 };
 
@@ -193,6 +200,27 @@ std::shared_ptr<spdlog::logger> CreateLoggerUnlocked(State& state) {
   return logger;
 }
 
+bool IsLevelEnabled(Level requested_level, Level configured_level) noexcept {
+  return configured_level != Level::kOff &&
+         static_cast<int>(requested_level) >= static_cast<int>(configured_level);
+}
+
+void PublishLoggerUnlocked(State& state) noexcept {
+  state.published_output_format.store(state.configuration.output_format, std::memory_order_release);
+  state.published_level.store(state.configuration.level, std::memory_order_release);
+  state.published_logger.store(state.logger.get(), std::memory_order_release);
+}
+
+void UnpublishLoggerUnlocked(State& state) noexcept {
+  state.published_level.store(Level::kOff, std::memory_order_release);
+  state.published_logger.store(nullptr, std::memory_order_release);
+}
+
+template <typename Lock>
+void WaitForActiveLogsUnlocked(State& state, Lock& lock) {
+  state.no_active_logs.wait(lock, [&state] { return state.active_log_calls.load(std::memory_order_acquire) == 0; });
+}
+
 void ConfigureSinkFormattersUnlocked(State& state) {
   const std::string& pattern =
     state.configuration.output_format == OutputFormat::kJson ? std::string("%v") : state.configuration.pattern;
@@ -226,6 +254,17 @@ void FlushUnlocked(State& state) noexcept {
   }
 }
 
+void FlushWithPublishingPausedUnlocked(State& state, std::unique_lock<std::mutex>& lock) noexcept {
+  if (state.logger == nullptr) {
+    return;
+  }
+
+  UnpublishLoggerUnlocked(state);
+  WaitForActiveLogsUnlocked(state, lock);
+  FlushUnlocked(state);
+  PublishLoggerUnlocked(state);
+}
+
 bool ValidateConfiguration(const Configuration& configuration, std::string* error_message) {
   if (configuration.logger_name.empty()) {
     if (error_message != nullptr) {
@@ -242,6 +281,18 @@ bool ValidateConfiguration(const Configuration& configuration, std::string* erro
   if (configuration.async && configuration.queue_size == 0) {
     if (error_message != nullptr) {
       *error_message = "queue_size must be greater than zero when async logging is enabled.";
+    }
+    return false;
+  }
+  if (configuration.async && configuration.async_worker_count == 0) {
+    if (error_message != nullptr) {
+      *error_message = "async_worker_count must be greater than zero when async logging is enabled.";
+    }
+    return false;
+  }
+  if (configuration.async && configuration.async_worker_count > 1000) {
+    if (error_message != nullptr) {
+      *error_message = "async_worker_count must be in the range [1, 1000] when async logging is enabled.";
     }
     return false;
   }
@@ -273,7 +324,9 @@ bool ValidateConfiguration(const Configuration& configuration, std::string* erro
   return true;
 }
 
-void ResetStateUnlocked(State& state) noexcept {
+void ResetStateUnlocked(State& state, std::unique_lock<std::mutex>& lock) noexcept {
+  UnpublishLoggerUnlocked(state);
+  WaitForActiveLogsUnlocked(state, lock);
   FlushUnlocked(state);
 
   state.logger.reset();
@@ -281,13 +334,14 @@ void ResetStateUnlocked(State& state) noexcept {
   state.thread_pool.reset();
   state.configured = false;
   state.configuration = Configuration{};
+  state.published_output_format.store(OutputFormat::kText, std::memory_order_release);
 }
 
 } // namespace
 
 bool Configure(const Configuration& configuration, std::string* error_message) {
   State& state = GlobalState();
-  std::unique_lock<std::shared_mutex> lock(state.mutex);
+  std::unique_lock<std::mutex> lock(state.mutex);
   if (state.configured) {
     if (error_message != nullptr) {
       *error_message =
@@ -301,7 +355,7 @@ bool Configure(const Configuration& configuration, std::string* error_message) {
   }
 
   try {
-    ResetStateUnlocked(state);
+    ResetStateUnlocked(state, lock);
 
     if (configuration.file.enabled) {
       const fs::path file_path(configuration.file.path);
@@ -314,22 +368,28 @@ bool Configure(const Configuration& configuration, std::string* error_message) {
     }
 
     if (configuration.console) {
-      state.sinks.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+      if (configuration.console_color) {
+        state.sinks.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+      } else {
+        state.sinks.push_back(std::make_shared<spdlog::sinks::stdout_sink_mt>());
+      }
     }
 
     if (configuration.async) {
-      state.thread_pool = std::make_shared<spdlog::details::thread_pool>(configuration.queue_size, 1);
+      state.thread_pool =
+        std::make_shared<spdlog::details::thread_pool>(configuration.queue_size, configuration.async_worker_count);
     }
 
     state.configuration = configuration;
     ConfigureSinkFormattersUnlocked(state);
     state.logger = CreateLoggerUnlocked(state);
     state.configured = true;
+    PublishLoggerUnlocked(state);
   } catch (const std::exception& error) {
     if (error_message != nullptr) {
       *error_message = std::string("Failed to configure logging: ") + error.what();
     }
-    ResetStateUnlocked(state);
+    ResetStateUnlocked(state, lock);
     return false;
   }
 
@@ -349,48 +409,125 @@ bool Configure(const std::string& config_path, const std::string& base_dir, std:
 
 void Flush() {
   State& state = GlobalState();
-  std::unique_lock<std::shared_mutex> lock(state.mutex);
-  FlushUnlocked(state);
+  std::unique_lock<std::mutex> lock(state.mutex);
+  FlushWithPublishingPausedUnlocked(state, lock);
 }
 
 void Shutdown() {
   State& state = GlobalState();
-  std::unique_lock<std::shared_mutex> lock(state.mutex);
-  ResetStateUnlocked(state);
+  std::unique_lock<std::mutex> lock(state.mutex);
+  ResetStateUnlocked(state, lock);
 }
 
 bool IsConfigured() {
   State& state = GlobalState();
-  std::shared_lock<std::shared_mutex> lock(state.mutex);
+  std::lock_guard<std::mutex> lock(state.mutex);
   return state.configured;
 }
 
 Configuration CurrentConfiguration() {
   State& state = GlobalState();
-  std::shared_lock<std::shared_mutex> lock(state.mutex);
+  std::lock_guard<std::mutex> lock(state.mutex);
   return state.configuration;
 }
 
 bool ShouldLog(Level level) {
   State& state = GlobalState();
-  std::shared_lock<std::shared_mutex> lock(state.mutex);
-  return state.logger != nullptr && state.logger->should_log(ToSpdlogLevel(level));
+  return state.published_logger.load(std::memory_order_acquire) != nullptr &&
+         IsLevelEnabled(level, state.published_level.load(std::memory_order_relaxed));
 }
 
-void Log(Level level, std::string_view message, const Fields& fields, const std::source_location& location) {
+bool detail::BeginLog(Level level, detail::LogSite* site) noexcept {
   State& state = GlobalState();
-  std::shared_lock<std::shared_mutex> lock(state.mutex);
-  if (state.logger == nullptr || !state.logger->should_log(ToSpdlogLevel(level))) {
+  if (site == nullptr || !IsLevelEnabled(level, state.published_level.load(std::memory_order_acquire))) {
+    return false;
+  }
+
+  while (true) {
+    spdlog::logger* logger = state.published_logger.load(std::memory_order_acquire);
+    if (logger == nullptr) {
+      return false;
+    }
+
+    state.active_log_calls.fetch_add(1, std::memory_order_acq_rel);
+    if (logger == state.published_logger.load(std::memory_order_acquire)) {
+      site->logger = logger;
+      site->output_format = state.published_output_format.load(std::memory_order_relaxed);
+      return true;
+    }
+
+    if (state.active_log_calls.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+      state.no_active_logs.notify_all();
+    }
+  }
+}
+
+void detail::EndLog(detail::LogSite* site) noexcept {
+  if (site == nullptr || site->logger == nullptr) {
     return;
   }
 
-  const std::string payload = state.configuration.output_format == OutputFormat::kJson
-                                ? BuildJsonMessage(state.logger->name(), level, message, fields, location)
-                                : BuildTextMessage(message, fields);
+  State& state = GlobalState();
+  site->logger = nullptr;
+  if (state.active_log_calls.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    state.no_active_logs.notify_all();
+  }
+}
+
+void detail::LogMessage(const detail::LogSite& site, Level level, std::string_view message, const Fields& fields,
+                        const std::source_location& location) {
+  auto* logger = static_cast<spdlog::logger*>(site.logger);
+  if (logger == nullptr) {
+    return;
+  }
 
   const spdlog::source_loc source_location{Basename(location.file_name()), static_cast<int>(location.line()),
                                            location.function_name()};
-  state.logger->log(source_location, ToSpdlogLevel(level), "{}", payload);
+
+  if (site.output_format == OutputFormat::kJson) {
+    const std::string payload = BuildJsonMessage(logger->name(), level, message, fields, location);
+    logger->log(
+      source_location, ToSpdlogLevel(level), spdlog::string_view_t(payload.data(), payload.size()));
+    return;
+  }
+
+  if (fields.empty()) {
+    logger->log(source_location, ToSpdlogLevel(level), spdlog::string_view_t(message.data(), message.size()));
+    return;
+  }
+
+  const std::string payload = BuildTextMessage(message, fields);
+  logger->log(source_location, ToSpdlogLevel(level), spdlog::string_view_t(payload.data(), payload.size()));
+}
+
+void detail::LogFormatted(const detail::LogSite& site, Level level, const Fields* fields,
+                          const std::source_location& location, fmt::string_view format_string,
+                          fmt::format_args args) {
+  auto* logger = static_cast<spdlog::logger*>(site.logger);
+  if (logger == nullptr) {
+    return;
+  }
+
+  fmt::memory_buffer buffer;
+  fmt::vformat_to(fmt::appender(buffer), format_string, args);
+
+  const std::string_view formatted_message(buffer.data(), buffer.size());
+  if (fields == nullptr) {
+    detail::LogMessage(site, level, formatted_message, {}, location);
+    return;
+  }
+
+  detail::LogMessage(site, level, formatted_message, *fields, location);
+}
+
+void Log(Level level, std::string_view message, const Fields& fields, const std::source_location& location) {
+  detail::LogSite site;
+  if (!detail::BeginLog(level, &site)) {
+    return;
+  }
+
+  detail::LogMessage(site, level, message, fields, location);
+  detail::EndLog(&site);
 }
 
 void Log(Level level, std::string_view message, std::initializer_list<Field> fields,

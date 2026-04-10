@@ -230,11 +230,18 @@ bool LoadConfiguration(const std::string& config_path, const std::string& base_d
     if (!ReadOptionalBoolean(root, "console", &parsed.console, error_message)) {
       return false;
     }
+    if (!ReadOptionalBoolean(root, "console_color", &parsed.console_color, error_message)) {
+      return false;
+    }
     if (!ReadOptionalBoolean(root, "async", &parsed.async, error_message)) {
       return false;
     }
     if (!ReadOptionalNonNegativeInteger(root, "queue_size", &parsed.queue_size, std::numeric_limits<std::size_t>::max(),
                                         error_message)) {
+      return false;
+    }
+    if (!ReadOptionalNonNegativeInteger(root, "async_worker_count", &parsed.async_worker_count,
+                                        std::numeric_limits<std::size_t>::max(), error_message)) {
       return false;
     }
     if (!ReadOptionalString(root, "pattern", &parsed.pattern, error_message)) {

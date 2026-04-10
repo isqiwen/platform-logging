@@ -3,8 +3,10 @@
   "level": "info",
   "flush_level": "warn",
   "console": true,
+  "console_color": false,
   "async": false,
   "queue_size": 8192,
+  "async_worker_count": 1,
   "output_format": "text",
   "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%P:%t] [%n] [%s:%#] %v",
   "file": {

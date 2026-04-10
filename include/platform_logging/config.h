@@ -35,8 +35,10 @@ struct Configuration {
   Level level = Level::kInfo;
   Level flush_level = Level::kWarn;
   bool console = true;
+  bool console_color = true;
   bool async = false;
   std::size_t queue_size = 8192;
+  std::size_t async_worker_count = 1;
   OutputFormat output_format = OutputFormat::kText;
   std::string pattern = "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%P:%t] [%n] [%s:%#] %v";
   FileSinkConfig file = {};

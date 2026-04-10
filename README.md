@@ -161,6 +161,8 @@ Default behavior:
 
 - `output_format` is `text`
 - text and JSON timestamps are emitted as plain local time
+- `console_color` defaults to `true` and can be disabled in configuration
+- `async_worker_count` defaults to `1`
 - file logs rotate daily
 - default rotation time is local `00:00`
 - default retention is `30` days
