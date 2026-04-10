@@ -13,13 +13,25 @@ namespace fs = std::filesystem;
 
 namespace {
 
-bool ReadOptionalString(const nlohmann::json& root, const char* key, std::string* out, std::string* error_message) {
+std::string MakeFieldPath(std::string_view parent, std::string_view field) {
+  if (parent.empty()) {
+    return std::string(field);
+  }
+
+  std::string path(parent);
+  path.push_back('.');
+  path.append(field);
+  return path;
+}
+
+bool ReadOptionalString(const nlohmann::json& root, const char* key, const std::string& field_path, std::string* out,
+                        std::string* error_message) {
   if (!root.contains(key)) {
     return true;
   }
   if (!root.at(key).is_string()) {
     if (error_message != nullptr) {
-      *error_message = std::string("Field '") + key + "' must be a string.";
+      *error_message = "Field '" + field_path + "' must be a string.";
     }
     return false;
   }
@@ -27,13 +39,14 @@ bool ReadOptionalString(const nlohmann::json& root, const char* key, std::string
   return true;
 }
 
-bool ReadOptionalBoolean(const nlohmann::json& root, const char* key, bool* out, std::string* error_message) {
+bool ReadOptionalBoolean(const nlohmann::json& root, const char* key, const std::string& field_path, bool* out,
+                         std::string* error_message) {
   if (!root.contains(key)) {
     return true;
   }
   if (!root.at(key).is_boolean()) {
     if (error_message != nullptr) {
-      *error_message = std::string("Field '") + key + "' must be a boolean.";
+      *error_message = "Field '" + field_path + "' must be a boolean.";
     }
     return false;
   }
@@ -42,8 +55,8 @@ bool ReadOptionalBoolean(const nlohmann::json& root, const char* key, bool* out,
 }
 
 template <typename T>
-bool ReadOptionalNonNegativeInteger(const nlohmann::json& root, const char* key, T* out, std::uint64_t max_value,
-                                    std::string* error_message) {
+bool ReadOptionalNonNegativeInteger(const nlohmann::json& root, const char* key, const std::string& field_path, T* out,
+                                    std::uint64_t max_value, std::string* error_message) {
   if (!root.contains(key)) {
     return true;
   }
@@ -56,21 +69,21 @@ bool ReadOptionalNonNegativeInteger(const nlohmann::json& root, const char* key,
     const std::int64_t signed_value = value.get<std::int64_t>();
     if (signed_value < 0) {
       if (error_message != nullptr) {
-        *error_message = std::string("Field '") + key + "' must be a non-negative integer.";
+        *error_message = "Field '" + field_path + "' must be a non-negative integer.";
       }
       return false;
     }
     parsed = static_cast<std::uint64_t>(signed_value);
   } else {
     if (error_message != nullptr) {
-      *error_message = std::string("Field '") + key + "' must be an integer.";
+      *error_message = "Field '" + field_path + "' must be an integer.";
     }
     return false;
   }
 
   if (parsed > max_value) {
     if (error_message != nullptr) {
-      *error_message = std::string("Field '") + key + "' is out of range.";
+      *error_message = "Field '" + field_path + "' is out of range.";
     }
     return false;
   }
@@ -79,22 +92,137 @@ bool ReadOptionalNonNegativeInteger(const nlohmann::json& root, const char* key,
   return true;
 }
 
-bool ParseLevelField(const nlohmann::json& root, const char* key, Level* out, std::string* error_message) {
+bool ReadOptionalStringArray(const nlohmann::json& root, const char* key, const std::string& field_path,
+                             std::vector<std::string>* out, std::string* error_message) {
+  if (!root.contains(key)) {
+    return true;
+  }
+
+  const nlohmann::json& value = root.at(key);
+  if (!value.is_array()) {
+    if (error_message != nullptr) {
+      *error_message = "Field '" + field_path + "' must be an array of strings.";
+    }
+    return false;
+  }
+
+  std::vector<std::string> parsed;
+  parsed.reserve(value.size());
+  for (std::size_t index = 0; index < value.size(); ++index) {
+    const nlohmann::json& entry = value.at(index);
+    if (!entry.is_string()) {
+      if (error_message != nullptr) {
+        *error_message = "Field '" + field_path + "' must be an array of strings.";
+      }
+      return false;
+    }
+
+    const std::string channel = entry.get<std::string>();
+    if (channel.empty()) {
+      if (error_message != nullptr) {
+        *error_message = "Field '" + field_path + "' must not contain empty channel names.";
+      }
+      return false;
+    }
+    parsed.push_back(channel);
+  }
+
+  *out = std::move(parsed);
+  return true;
+}
+
+bool ParseLevelField(const nlohmann::json& root, const char* key, const std::string& field_path, Level* out,
+                     std::string* error_message) {
   if (!root.contains(key)) {
     return true;
   }
   if (!root.at(key).is_string()) {
     if (error_message != nullptr) {
-      *error_message = std::string("Field '") + key + "' must be a string.";
+      *error_message = "Field '" + field_path + "' must be a string.";
     }
     return false;
   }
   if (!TryParseLevel(root.at(key).get<std::string>(), out)) {
     if (error_message != nullptr) {
-      *error_message = std::string("Unsupported log level in field '") + key + "'.";
+      *error_message = "Unsupported log level in field '" + field_path + "'.";
     }
     return false;
   }
+  return true;
+}
+
+bool RejectUnsupportedField(const nlohmann::json& root, const char* key, std::string_view guidance,
+                            std::string* error_message) {
+  if (!root.contains(key)) {
+    return true;
+  }
+  if (error_message != nullptr) {
+    *error_message = "Field '" + std::string(key) + "' is not supported in the current logging schema. " +
+                     std::string(guidance);
+  }
+  return false;
+}
+
+bool ParseSinkCommon(const nlohmann::json& root, std::string_view sink_name, SinkConfig* sink,
+                     std::string* error_message) {
+  const std::string enabled_path = MakeFieldPath(sink_name, "enabled");
+  if (!ReadOptionalBoolean(root, "enabled", enabled_path, &sink->enabled, error_message)) {
+    return false;
+  }
+
+  const std::string level_path = MakeFieldPath(sink_name, "level");
+  if (!ParseLevelField(root, "level", level_path, &sink->level, error_message)) {
+    return false;
+  }
+
+  const std::string pattern_path = MakeFieldPath(sink_name, "pattern");
+  if (!ReadOptionalString(root, "pattern", pattern_path, &sink->pattern, error_message)) {
+    return false;
+  }
+
+  const std::string channels_path = MakeFieldPath(sink_name, "channels");
+  if (!ReadOptionalStringArray(root, "channels", channels_path, &sink->channels, error_message)) {
+    return false;
+  }
+
+  return true;
+}
+
+bool ParseConsoleSinkConfig(const nlohmann::json& root, ConsoleSinkConfig* sink, std::string* error_message) {
+  if (!ParseSinkCommon(root, "console", sink, error_message)) {
+    return false;
+  }
+
+  const std::string color_path = MakeFieldPath("console", "console_color");
+  return ReadOptionalBoolean(root, "console_color", color_path, &sink->console_color, error_message);
+}
+
+bool ParseFileSinkConfig(const nlohmann::json& root, FileSinkConfig* sink, std::string* error_message) {
+  if (!ParseSinkCommon(root, "file", sink, error_message)) {
+    return false;
+  }
+
+  if (!ReadOptionalString(root, "path", MakeFieldPath("file", "path"), &sink->path, error_message)) {
+    return false;
+  }
+  if (!ReadOptionalNonNegativeInteger(root, "rotation_hour", MakeFieldPath("file", "rotation_hour"),
+                                      &sink->rotation_hour, 23, error_message)) {
+    return false;
+  }
+  if (!ReadOptionalNonNegativeInteger(root, "rotation_minute", MakeFieldPath("file", "rotation_minute"),
+                                      &sink->rotation_minute, 59, error_message)) {
+    return false;
+  }
+  if (!ReadOptionalNonNegativeInteger(root, "retention_days", MakeFieldPath("file", "retention_days"),
+                                      &sink->retention_days, std::numeric_limits<std::uint16_t>::max(),
+                                      error_message)) {
+    return false;
+  }
+
+  if (!RejectUnsupportedField(root, "max_files", "Use 'file.retention_days' instead.", error_message)) {
+    return false;
+  }
+
   return true;
 }
 
@@ -223,35 +351,40 @@ bool LoadConfiguration(const std::string& config_path, const std::string& base_d
     return false;
   }
 
+  if (!root.is_object()) {
+    if (error_message != nullptr) {
+      *error_message = std::string("Logging config '") + config_path + "' must be a JSON object.";
+    }
+    return false;
+  }
+
   try {
-    if (!ReadOptionalString(root, "logger_name", &parsed.logger_name, error_message)) {
-      return false;
-    }
-    if (!ReadOptionalBoolean(root, "console", &parsed.console, error_message)) {
-      return false;
-    }
-    if (!ReadOptionalBoolean(root, "console_color", &parsed.console_color, error_message)) {
-      return false;
-    }
-    if (!ReadOptionalBoolean(root, "async", &parsed.async, error_message)) {
-      return false;
-    }
-    if (!ReadOptionalNonNegativeInteger(root, "queue_size", &parsed.queue_size, std::numeric_limits<std::size_t>::max(),
-                                        error_message)) {
-      return false;
-    }
-    if (!ReadOptionalNonNegativeInteger(root, "async_worker_count", &parsed.async_worker_count,
-                                        std::numeric_limits<std::size_t>::max(), error_message)) {
-      return false;
-    }
-    if (!ReadOptionalString(root, "pattern", &parsed.pattern, error_message)) {
+    if (!RejectUnsupportedField(root, "level", "Use 'console.level' and/or 'file.level' instead.", error_message) ||
+        !RejectUnsupportedField(root, "pattern", "Use 'console.pattern' and/or 'file.pattern' instead.",
+                                error_message) ||
+        !RejectUnsupportedField(root, "console_color", "Use 'console.console_color' instead.", error_message) ||
+        !RejectUnsupportedField(root, "console_pattern", "Use 'console.pattern' instead.", error_message) ||
+        !RejectUnsupportedField(root, "file_pattern", "Use 'file.pattern' instead.", error_message)) {
       return false;
     }
 
-    if (!ParseLevelField(root, "level", &parsed.level, error_message)) {
+    if (!ReadOptionalString(root, "logger_name", "logger_name", &parsed.logger_name, error_message)) {
       return false;
     }
-    if (!ParseLevelField(root, "flush_level", &parsed.flush_level, error_message)) {
+    if (!ReadOptionalBoolean(root, "async", "async", &parsed.async, error_message)) {
+      return false;
+    }
+    if (!ReadOptionalNonNegativeInteger(root, "queue_size", "queue_size", &parsed.queue_size,
+                                        std::numeric_limits<std::size_t>::max(), error_message)) {
+      return false;
+    }
+    if (!ReadOptionalNonNegativeInteger(root, "async_worker_count", "async_worker_count",
+                                        &parsed.async_worker_count, std::numeric_limits<std::size_t>::max(),
+                                        error_message)) {
+      return false;
+    }
+
+    if (!ParseLevelField(root, "flush_level", "flush_level", &parsed.flush_level, error_message)) {
       return false;
     }
 
@@ -265,6 +398,19 @@ bool LoadConfiguration(const std::string& config_path, const std::string& base_d
       }
     }
 
+    if (root.contains("console")) {
+      const nlohmann::json& console = root.at("console");
+      if (!console.is_object()) {
+        if (error_message != nullptr) {
+          *error_message = "Field 'console' must be an object.";
+        }
+        return false;
+      }
+      if (!ParseConsoleSinkConfig(console, &parsed.console, error_message)) {
+        return false;
+      }
+    }
+
     if (root.contains("file")) {
       const nlohmann::json& file = root.at("file");
       if (!file.is_object()) {
@@ -273,24 +419,7 @@ bool LoadConfiguration(const std::string& config_path, const std::string& base_d
         }
         return false;
       }
-      if (!ReadOptionalBoolean(file, "enabled", &parsed.file.enabled, error_message)) {
-        return false;
-      }
-      if (!ReadOptionalString(file, "path", &parsed.file.path, error_message)) {
-        return false;
-      }
-      if (!ReadOptionalNonNegativeInteger(file, "rotation_hour", &parsed.file.rotation_hour, 23, error_message)) {
-        return false;
-      }
-      if (!ReadOptionalNonNegativeInteger(file, "rotation_minute", &parsed.file.rotation_minute, 59, error_message)) {
-        return false;
-      }
-      if (!ReadOptionalNonNegativeInteger(file, "retention_days", &parsed.file.retention_days,
-                                          std::numeric_limits<std::uint16_t>::max(), error_message)) {
-        return false;
-      }
-      if (!ReadOptionalNonNegativeInteger(file, "max_files", &parsed.file.retention_days,
-                                          std::numeric_limits<std::uint16_t>::max(), error_message)) {
+      if (!ParseFileSinkConfig(file, &parsed.file, error_message)) {
         return false;
       }
     }

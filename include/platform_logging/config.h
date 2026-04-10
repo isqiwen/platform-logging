@@ -4,8 +4,11 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 namespace platform_logging {
+
+inline constexpr const char* kDefaultTextPattern = "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%P:%t] [%n] [%s:%#] %v";
 
 enum class Level {
   kTrace,
@@ -22,25 +25,32 @@ enum class OutputFormat {
   kJson,
 };
 
-struct FileSinkConfig {
+struct SinkConfig {
   bool enabled = true;
+  Level level = Level::kInfo;
+  std::string pattern = kDefaultTextPattern;
+  std::vector<std::string> channels = {};
+};
+
+struct FileSinkConfig : SinkConfig {
   std::string path = "logs/platform_logging.log";
   int rotation_hour = 0;
   int rotation_minute = 0;
   int retention_days = 30;
 };
 
+struct ConsoleSinkConfig : SinkConfig {
+  bool console_color = true;
+};
+
 struct Configuration {
   std::string logger_name = "platform_logging";
-  Level level = Level::kInfo;
   Level flush_level = Level::kWarn;
-  bool console = true;
-  bool console_color = true;
   bool async = false;
   std::size_t queue_size = 8192;
   std::size_t async_worker_count = 1;
   OutputFormat output_format = OutputFormat::kText;
-  std::string pattern = "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%P:%t] [%n] [%s:%#] %v";
+  ConsoleSinkConfig console = {};
   FileSinkConfig file = {};
 };
 

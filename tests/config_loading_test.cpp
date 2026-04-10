@@ -10,7 +10,7 @@ int main() {
   const std::filesystem::path build_root = platform_logging_test::PrepareTestRoot("platform_logging_config_test");
 
   const std::filesystem::path malformed_bool_path = build_root / "malformed_bool.json";
-  if (!platform_logging_test::WriteFile(malformed_bool_path, R"({"console":"yes"})")) {
+  if (!platform_logging_test::WriteFile(malformed_bool_path, R"({"console":{"console_color":"yes"}})")) {
     std::cerr << "Failed to write malformed bool config\n";
     return 1;
   }
@@ -24,6 +24,21 @@ int main() {
   }
   if (error_message.find("must be a boolean") == std::string::npos) {
     std::cerr << "Unexpected malformed boolean error message\n";
+    return 1;
+  }
+
+  const std::filesystem::path legacy_field_path = build_root / "legacy_level.json";
+  if (!platform_logging_test::WriteFile(legacy_field_path, R"({"level":"info"})")) {
+    std::cerr << "Failed to write legacy field config\n";
+    return 1;
+  }
+  if (platform_logging::LoadConfiguration(legacy_field_path.string(), build_root.string(), &configuration,
+                                          &error_message)) {
+    std::cerr << "LoadConfiguration should reject legacy top-level level field\n";
+    return 1;
+  }
+  if (error_message.find("console.level") == std::string::npos) {
+    std::cerr << "Unexpected legacy field rejection error message\n";
     return 1;
   }
 
@@ -65,14 +80,21 @@ int main() {
         valid_config_path,
         R"({
   "logger_name": "config_test",
-  "console": true,
-  "console_color": false,
   "async": true,
   "queue_size": 2048,
   "async_worker_count": 3,
   "output_format": "text",
+  "console": {
+    "enabled": true,
+    "level": "warn",
+    "console_color": false,
+    "pattern": "[console] [%^%l%$] %v",
+    "channels": ["status"]
+  },
   "file": {
-    "enabled": false
+    "enabled": false,
+    "level": "debug",
+    "pattern": "[file] [%s:%#] %v"
   }
 })")) {
     std::cerr << "Failed to write valid config\n";
@@ -80,11 +102,25 @@ int main() {
   }
   if (!platform_logging::LoadConfiguration(valid_config_path.string(), build_root.string(), &configuration,
                                            &error_message)) {
-    std::cerr << "LoadConfiguration should accept console_color and async_worker_count: " << error_message << '\n';
+    std::cerr << "LoadConfiguration should accept the nested sink schema: " << error_message << '\n';
     return 1;
   }
-  if (configuration.console_color) {
-    std::cerr << "console_color should load as false\n";
+  if (configuration.console.console_color) {
+    std::cerr << "console.console_color should load as false\n";
+    return 1;
+  }
+  if (configuration.console.pattern != "[console] [%^%l%$] %v" ||
+      configuration.file.pattern != "[file] [%s:%#] %v") {
+    std::cerr << "Unexpected sink pattern configuration values\n";
+    return 1;
+  }
+  if (configuration.console.level != platform_logging::Level::kWarn ||
+      configuration.file.level != platform_logging::Level::kDebug) {
+    std::cerr << "Unexpected sink level configuration values\n";
+    return 1;
+  }
+  if (configuration.console.channels.size() != 1 || configuration.console.channels.front() != "status") {
+    std::cerr << "Unexpected console channel configuration values\n";
     return 1;
   }
   if (!configuration.async || configuration.async_worker_count != 3 || configuration.queue_size != 2048) {
@@ -93,7 +129,7 @@ int main() {
   }
 
   platform_logging::Configuration invalid_configuration;
-  invalid_configuration.console = true;
+  invalid_configuration.console.enabled = true;
   invalid_configuration.file.enabled = false;
   invalid_configuration.async = true;
   invalid_configuration.async_worker_count = 0;

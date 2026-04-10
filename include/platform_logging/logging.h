@@ -67,6 +67,11 @@ auto MakeKvFormatString(std::index_sequence<Indices...>)
 template <typename... Args>
 using KvFormatString = decltype(MakeKvFormatString<Args...>(std::make_index_sequence<kFormatArgCount<Args...>>{}));
 
+inline std::string_view ToStdStringView(fmt::string_view text)
+{
+  return std::string_view(text.data(), text.size());
+}
+
 template <typename FormatString, typename Tuple, std::size_t... Indices>
 std::string FormatTupleArgs(const FormatString& format_string,
                             Tuple&& args,
@@ -106,8 +111,15 @@ void LogFormat(Level level,
     return;
   }
 
-  detail::LogFormatted(
-    site, level, nullptr, location, fmt::string_view(format_string), fmt::make_format_args(args...));
+  if constexpr (sizeof...(Args) == 0)
+  {
+    detail::LogMessage(site, level, {}, detail::ToStdStringView(fmt::string_view(format_string)), {}, location);
+  }
+  else
+  {
+    detail::LogFormatted(
+      site, level, {}, nullptr, location, fmt::string_view(format_string), fmt::make_format_args(args...));
+  }
   detail::EndLog(&site);
 }
 
@@ -124,8 +136,68 @@ void LogFormat(Level level,
     return;
   }
 
-  detail::LogFormatted(
-    site, level, &fields, location, fmt::string_view(format_string), fmt::make_format_args(args...));
+  if constexpr (sizeof...(Args) == 0)
+  {
+    detail::LogMessage(site, level, {}, detail::ToStdStringView(fmt::string_view(format_string)), fields, location);
+  }
+  else
+  {
+    detail::LogFormatted(
+      site, level, {}, &fields, location, fmt::string_view(format_string), fmt::make_format_args(args...));
+  }
+  detail::EndLog(&site);
+}
+
+template <typename... Args>
+void LogFormatChannel(Level level,
+                      std::string_view channel,
+                      const std::source_location& location,
+                      fmt::format_string<Args...> format_string,
+                      Args&&... args)
+{
+  detail::LogSite site;
+  if (!detail::BeginLog(level, &site))
+  {
+    return;
+  }
+
+  if constexpr (sizeof...(Args) == 0)
+  {
+    detail::LogMessage(
+      site, level, channel, detail::ToStdStringView(fmt::string_view(format_string)), {}, location);
+  }
+  else
+  {
+    detail::LogFormatted(
+      site, level, channel, nullptr, location, fmt::string_view(format_string), fmt::make_format_args(args...));
+  }
+  detail::EndLog(&site);
+}
+
+template <typename... Args>
+void LogFormatChannel(Level level,
+                      std::string_view channel,
+                      const Fields& fields,
+                      const std::source_location& location,
+                      fmt::format_string<Args...> format_string,
+                      Args&&... args)
+{
+  detail::LogSite site;
+  if (!detail::BeginLog(level, &site))
+  {
+    return;
+  }
+
+  if constexpr (sizeof...(Args) == 0)
+  {
+    detail::LogMessage(
+      site, level, channel, detail::ToStdStringView(fmt::string_view(format_string)), fields, location);
+  }
+  else
+  {
+    detail::LogFormatted(
+      site, level, channel, &fields, location, fmt::string_view(format_string), fmt::make_format_args(args...));
+  }
   detail::EndLog(&site);
 }
 
@@ -149,12 +221,70 @@ void LogFormatKv(Level level,
     return;
   }
 
-  detail::LogMessage(
-    site,
-    level,
-    detail::FormatTupleArgs(format_string, tuple, std::make_index_sequence<format_arg_count>{}),
-    detail::BuildFields<format_arg_count>(tuple, std::make_index_sequence<field_arg_count>{}),
-    location);
+  if constexpr (format_arg_count == 0)
+  {
+    detail::LogMessage(
+      site,
+      level,
+      {},
+      detail::ToStdStringView(fmt::string_view(format_string)),
+      detail::BuildFields<format_arg_count>(tuple, std::make_index_sequence<field_arg_count>{}),
+      location);
+  }
+  else
+  {
+    detail::LogMessage(
+      site,
+      level,
+      {},
+      detail::FormatTupleArgs(format_string, tuple, std::make_index_sequence<format_arg_count>{}),
+      detail::BuildFields<format_arg_count>(tuple, std::make_index_sequence<field_arg_count>{}),
+      location);
+  }
+  detail::EndLog(&site);
+}
+
+template <typename... Args>
+void LogFormatKvChannel(Level level,
+                        std::string_view channel,
+                        const std::source_location& location,
+                        detail::KvFormatString<Args...> format_string,
+                        Args&&... args)
+{
+  static_assert(
+    detail::FieldsAreTrailing<Args...>(),
+    "Structured fields must appear after all format arguments.");
+
+  auto tuple = std::forward_as_tuple(std::forward<Args>(args)...);
+  constexpr std::size_t format_arg_count = detail::kFormatArgCount<Args...>;
+  constexpr std::size_t field_arg_count = sizeof...(Args) - format_arg_count;
+
+  detail::LogSite site;
+  if (!detail::BeginLog(level, &site))
+  {
+    return;
+  }
+
+  if constexpr (format_arg_count == 0)
+  {
+    detail::LogMessage(
+      site,
+      level,
+      channel,
+      detail::ToStdStringView(fmt::string_view(format_string)),
+      detail::BuildFields<format_arg_count>(tuple, std::make_index_sequence<field_arg_count>{}),
+      location);
+  }
+  else
+  {
+    detail::LogMessage(
+      site,
+      level,
+      channel,
+      detail::FormatTupleArgs(format_string, tuple, std::make_index_sequence<format_arg_count>{}),
+      detail::BuildFields<format_arg_count>(tuple, std::make_index_sequence<field_arg_count>{}),
+      location);
+  }
   detail::EndLog(&site);
 }
 
@@ -165,6 +295,13 @@ void LogFormatKv(Level level,
   {                                                                                       \
     ::platform_logging::LogFormat(                                                        \
       ::platform_logging::Level::kTrace, std::source_location::current(), __VA_ARGS__);   \
+  } while (false)
+
+#define PLATFORM_LOG_TRACE_CH(channel, ...)                                                        \
+  do                                                                                               \
+  {                                                                                                \
+    ::platform_logging::LogFormatChannel(                                                          \
+      ::platform_logging::Level::kTrace, channel, std::source_location::current(), __VA_ARGS__);   \
   } while (false)
 
 #define PLATFORM_LOG_FUNCTION_ENTER() PLATFORM_LOG_TRACE("Entering {}", __FUNCTION__)
@@ -178,11 +315,25 @@ void LogFormatKv(Level level,
       ::platform_logging::Level::kDebug, std::source_location::current(), __VA_ARGS__);   \
   } while (false)
 
+#define PLATFORM_LOG_DEBUG_CH(channel, ...)                                                        \
+  do                                                                                                \
+  {                                                                                                 \
+    ::platform_logging::LogFormatChannel(                                                           \
+      ::platform_logging::Level::kDebug, channel, std::source_location::current(), __VA_ARGS__);   \
+  } while (false)
+
 #define PLATFORM_LOG_INFO(...)                                                           \
   do                                                                                     \
   {                                                                                      \
     ::platform_logging::LogFormat(                                                       \
       ::platform_logging::Level::kInfo, std::source_location::current(), __VA_ARGS__);   \
+  } while (false)
+
+#define PLATFORM_LOG_INFO_CH(channel, ...)                                                        \
+  do                                                                                              \
+  {                                                                                               \
+    ::platform_logging::LogFormatChannel(                                                         \
+      ::platform_logging::Level::kInfo, channel, std::source_location::current(), __VA_ARGS__);   \
   } while (false)
 
 #define PLATFORM_LOG_WARN(...)                                                           \
@@ -192,11 +343,25 @@ void LogFormatKv(Level level,
       ::platform_logging::Level::kWarn, std::source_location::current(), __VA_ARGS__);   \
   } while (false)
 
+#define PLATFORM_LOG_WARN_CH(channel, ...)                                                        \
+  do                                                                                              \
+  {                                                                                               \
+    ::platform_logging::LogFormatChannel(                                                         \
+      ::platform_logging::Level::kWarn, channel, std::source_location::current(), __VA_ARGS__);   \
+  } while (false)
+
 #define PLATFORM_LOG_ERROR(...)                                                           \
   do                                                                                      \
   {                                                                                       \
     ::platform_logging::LogFormat(                                                        \
       ::platform_logging::Level::kError, std::source_location::current(), __VA_ARGS__);   \
+  } while (false)
+
+#define PLATFORM_LOG_ERROR_CH(channel, ...)                                                        \
+  do                                                                                               \
+  {                                                                                                \
+    ::platform_logging::LogFormatChannel(                                                          \
+      ::platform_logging::Level::kError, channel, std::source_location::current(), __VA_ARGS__);   \
   } while (false)
 
 #define PLATFORM_LOG_CRITICAL(...)                                                           \
@@ -206,11 +371,25 @@ void LogFormatKv(Level level,
       ::platform_logging::Level::kCritical, std::source_location::current(), __VA_ARGS__);   \
   } while (false)
 
+#define PLATFORM_LOG_CRITICAL_CH(channel, ...)                                                        \
+  do                                                                                                  \
+  {                                                                                                   \
+    ::platform_logging::LogFormatChannel(                                                             \
+      ::platform_logging::Level::kCritical, channel, std::source_location::current(), __VA_ARGS__);   \
+  } while (false)
+
 #define PLATFORM_LOG_TRACE_KV(...)                                                        \
   do                                                                                      \
   {                                                                                       \
     ::platform_logging::LogFormatKv(                                                      \
       ::platform_logging::Level::kTrace, std::source_location::current(), __VA_ARGS__);   \
+  } while (false)
+
+#define PLATFORM_LOG_TRACE_KV_CH(channel, ...)                                                        \
+  do                                                                                                  \
+  {                                                                                                   \
+    ::platform_logging::LogFormatKvChannel(                                                           \
+      ::platform_logging::Level::kTrace, channel, std::source_location::current(), __VA_ARGS__);     \
   } while (false)
 
 #define PLATFORM_LOG_DEBUG_KV(...)                                                        \
@@ -220,11 +399,25 @@ void LogFormatKv(Level level,
       ::platform_logging::Level::kDebug, std::source_location::current(), __VA_ARGS__);   \
   } while (false)
 
+#define PLATFORM_LOG_DEBUG_KV_CH(channel, ...)                                                        \
+  do                                                                                                  \
+  {                                                                                                   \
+    ::platform_logging::LogFormatKvChannel(                                                           \
+      ::platform_logging::Level::kDebug, channel, std::source_location::current(), __VA_ARGS__);     \
+  } while (false)
+
 #define PLATFORM_LOG_INFO_KV(...)                                                        \
   do                                                                                     \
   {                                                                                      \
     ::platform_logging::LogFormatKv(                                                     \
       ::platform_logging::Level::kInfo, std::source_location::current(), __VA_ARGS__);   \
+  } while (false)
+
+#define PLATFORM_LOG_INFO_KV_CH(channel, ...)                                                        \
+  do                                                                                                \
+  {                                                                                                 \
+    ::platform_logging::LogFormatKvChannel(                                                         \
+      ::platform_logging::Level::kInfo, channel, std::source_location::current(), __VA_ARGS__);     \
   } while (false)
 
 #define PLATFORM_LOG_WARN_KV(...)                                                        \
@@ -234,6 +427,13 @@ void LogFormatKv(Level level,
       ::platform_logging::Level::kWarn, std::source_location::current(), __VA_ARGS__);   \
   } while (false)
 
+#define PLATFORM_LOG_WARN_KV_CH(channel, ...)                                                        \
+  do                                                                                                \
+  {                                                                                                 \
+    ::platform_logging::LogFormatKvChannel(                                                         \
+      ::platform_logging::Level::kWarn, channel, std::source_location::current(), __VA_ARGS__);     \
+  } while (false)
+
 #define PLATFORM_LOG_ERROR_KV(...)                                                        \
   do                                                                                      \
   {                                                                                       \
@@ -241,9 +441,23 @@ void LogFormatKv(Level level,
       ::platform_logging::Level::kError, std::source_location::current(), __VA_ARGS__);   \
   } while (false)
 
+#define PLATFORM_LOG_ERROR_KV_CH(channel, ...)                                                        \
+  do                                                                                                 \
+  {                                                                                                  \
+    ::platform_logging::LogFormatKvChannel(                                                          \
+      ::platform_logging::Level::kError, channel, std::source_location::current(), __VA_ARGS__);     \
+  } while (false)
+
 #define PLATFORM_LOG_CRITICAL_KV(...)                                                        \
   do                                                                                         \
   {                                                                                          \
     ::platform_logging::LogFormatKv(                                                         \
       ::platform_logging::Level::kCritical, std::source_location::current(), __VA_ARGS__);   \
+  } while (false)
+
+#define PLATFORM_LOG_CRITICAL_KV_CH(channel, ...)                                                        \
+  do                                                                                                      \
+  {                                                                                                       \
+    ::platform_logging::LogFormatKvChannel(                                                               \
+      ::platform_logging::Level::kCritical, channel, std::source_location::current(), __VA_ARGS__);      \
   } while (false)

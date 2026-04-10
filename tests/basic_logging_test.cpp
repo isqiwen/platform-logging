@@ -24,7 +24,7 @@ int main() {
   PLATFORM_LOG_INFO("dropped before configure");
 
   platform_logging::Configuration invalid_configuration;
-  invalid_configuration.console = false;
+  invalid_configuration.console.enabled = false;
   invalid_configuration.file.enabled = false;
   std::string error_message;
   if (platform_logging::Configure(invalid_configuration, &error_message)) {
@@ -38,7 +38,7 @@ int main() {
 
   platform_logging::Configuration configuration;
   configuration.logger_name = "platform_logging_test";
-  configuration.console = false;
+  configuration.console.enabled = false;
   configuration.output_format = platform_logging::OutputFormat::kJson;
   configuration.file.path = (build_root / "platform_logging_test.log").string();
 
@@ -63,7 +63,10 @@ int main() {
     std::cerr << "Unexpected configuration snapshot before shutdown\n";
     return 1;
   }
-  if (!snapshot_before_shutdown.console_color || snapshot_before_shutdown.async_worker_count != 1) {
+  if (!snapshot_before_shutdown.console.console_color || snapshot_before_shutdown.async_worker_count != 1 ||
+      snapshot_before_shutdown.console.pattern != platform_logging::kDefaultTextPattern ||
+      snapshot_before_shutdown.file.pattern != platform_logging::kDefaultTextPattern ||
+      !snapshot_before_shutdown.console.channels.empty() || !snapshot_before_shutdown.file.channels.empty()) {
     std::cerr << "Unexpected default console/async worker configuration before shutdown\n";
     return 1;
   }
@@ -96,8 +99,10 @@ int main() {
   }
   const platform_logging::Configuration snapshot_after_shutdown = platform_logging::CurrentConfiguration();
   if (snapshot_after_shutdown.logger_name != "platform_logging" ||
-      snapshot_after_shutdown.file.path != "logs/platform_logging.log" || !snapshot_after_shutdown.console_color ||
-      snapshot_after_shutdown.async_worker_count != 1) {
+      snapshot_after_shutdown.file.path != "logs/platform_logging.log" || !snapshot_after_shutdown.console.console_color ||
+      snapshot_after_shutdown.async_worker_count != 1 ||
+      snapshot_after_shutdown.console.pattern != platform_logging::kDefaultTextPattern ||
+      snapshot_after_shutdown.file.pattern != platform_logging::kDefaultTextPattern) {
     std::cerr << "Unexpected configuration snapshot after shutdown\n";
     return 1;
   }
@@ -145,6 +150,10 @@ int main() {
   }
   if (log_text.find("\"logger\":\"platform_logging_test\"") == std::string::npos) {
     std::cerr << "Missing logger field\n";
+    return 1;
+  }
+  if (log_text.find("\"channel\":\"default\"") == std::string::npos) {
+    std::cerr << "Missing default channel field in JSON output\n";
     return 1;
   }
   if (log_text.find("\"module\":") != std::string::npos) {

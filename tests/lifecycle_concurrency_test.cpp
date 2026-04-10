@@ -16,7 +16,7 @@ int main() {
 
   platform_logging::Configuration configuration;
   configuration.logger_name = "platform_logging_lifecycle_test";
-  configuration.console = false;
+  configuration.console.enabled = false;
   configuration.output_format = platform_logging::OutputFormat::kJson;
   configuration.file.path = (build_root / "platform_logging_lifecycle_test.log").string();
 

@@ -11,7 +11,7 @@ int main() {
 
   platform_logging::Configuration configuration;
   configuration.logger_name = "platform_logging_async_test";
-  configuration.console = false;
+  configuration.console.enabled = false;
   configuration.async = true;
   configuration.queue_size = 1024;
   configuration.output_format = platform_logging::OutputFormat::kJson;

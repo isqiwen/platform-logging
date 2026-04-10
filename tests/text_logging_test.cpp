@@ -11,8 +11,10 @@ int main() {
 
   platform_logging::Configuration configuration;
   configuration.logger_name = "platform_logging_text_test";
-  configuration.console = false;
+  configuration.console.enabled = false;
   configuration.output_format = platform_logging::OutputFormat::kText;
+  configuration.file.pattern = "[FILE] [%s:%#] %v";
+  configuration.file.channels = {"status"};
   configuration.file.path = (build_root / "platform_logging_text_test.log").string();
 
   std::string error_message;
@@ -21,8 +23,9 @@ int main() {
     return 1;
   }
 
-  PLATFORM_LOG_INFO_KV("text mode slice {}", 7, platform_logging::kv("scan_uid", 42),
-                       platform_logging::kv("mode", "demo"));
+  PLATFORM_LOG_INFO("default text message should be filtered");
+  PLATFORM_LOG_INFO_KV_CH("status", "text mode slice {}", 7, platform_logging::kv("scan_uid", 42),
+                          platform_logging::kv("mode", "demo"));
   platform_logging::Shutdown();
 
   const std::filesystem::path resolved_log_path =
@@ -37,21 +40,16 @@ int main() {
     std::cerr << "Failed to read text output log file: " << resolved_log_path << '\n';
     return 1;
   }
-  if (log_text.find("[info]") == std::string::npos) {
-    std::cerr << "Missing text log level\n";
+  if (log_text.find("[FILE]") == std::string::npos) {
+    std::cerr << "Missing file pattern prefix\n";
     return 1;
   }
-  if (log_text.find("[platform_logging_text_test]") == std::string::npos) {
-    std::cerr << "Missing text logger name\n";
+  if (log_text.find("default text message should be filtered") != std::string::npos) {
+    std::cerr << "Untagged default-channel info log should be filtered out by file.channels\n";
     return 1;
   }
   if (log_text.find("text_logging_test.cpp:") == std::string::npos) {
     std::cerr << "Missing source location in text output\n";
-    return 1;
-  }
-  const std::regex local_timestamp_pattern(R"(\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] \[info\])");
-  if (!std::regex_search(log_text, local_timestamp_pattern)) {
-    std::cerr << "Text log timestamp should be emitted in plain local time\n";
     return 1;
   }
   if (log_text.find("text mode slice 7 | scan_uid=42 mode=\"demo\"") == std::string::npos) {

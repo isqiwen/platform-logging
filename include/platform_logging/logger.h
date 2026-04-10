@@ -27,6 +27,12 @@ PLATFORM_LOGGING_API void Log(Level level, std::string_view message, const Field
                               const std::source_location& location = std::source_location::current());
 PLATFORM_LOGGING_API void Log(Level level, std::string_view message, std::initializer_list<Field> fields,
                               const std::source_location& location = std::source_location::current());
+PLATFORM_LOGGING_API void LogChannel(Level level, std::string_view channel, std::string_view message,
+                                     const Fields& fields = {},
+                                     const std::source_location& location = std::source_location::current());
+PLATFORM_LOGGING_API void LogChannel(Level level, std::string_view channel, std::string_view message,
+                                     std::initializer_list<Field> fields,
+                                     const std::source_location& location = std::source_location::current());
 
 namespace detail {
 
@@ -37,9 +43,11 @@ struct LogSite {
 
 [[nodiscard]] PLATFORM_LOGGING_API bool BeginLog(Level level, LogSite* site) noexcept;
 PLATFORM_LOGGING_API void EndLog(LogSite* site) noexcept;
-PLATFORM_LOGGING_API void LogMessage(const LogSite& site, Level level, std::string_view message, const Fields& fields,
+PLATFORM_LOGGING_API void LogMessage(const LogSite& site, Level level, std::string_view channel,
+                                     std::string_view message, const Fields& fields,
                                      const std::source_location& location);
-PLATFORM_LOGGING_API void LogFormatted(const LogSite& site, Level level, const Fields* fields,
+PLATFORM_LOGGING_API void LogFormatted(const LogSite& site, Level level, std::string_view channel,
+                                       const Fields* fields,
                                        const std::source_location& location, fmt::string_view format_string,
                                        fmt::format_args args);
 
