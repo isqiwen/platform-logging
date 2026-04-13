@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/async.h>
 #include <spdlog/async_logger.h>
+#include <spdlog/details/fmt_helper.h>
 #include <spdlog/details/thread_pool.h>
 #include <spdlog/logger.h>
 #include <spdlog/pattern_formatter.h>
@@ -38,6 +39,67 @@ namespace {
 constexpr std::string_view kDefaultChannel = "default";
 constexpr std::string_view kChannelEnvelopePrefix = "\x1eplogch:";
 constexpr char kChannelEnvelopeSeparator = '\x1f';
+
+std::string_view ToPatternLevelName(spdlog::level::level_enum level) {
+  switch (level) {
+    case spdlog::level::trace:
+      return "TRACE";
+    case spdlog::level::debug:
+      return "DEBUG";
+    case spdlog::level::info:
+      return "INFO";
+    case spdlog::level::warn:
+      return "WARN";
+    case spdlog::level::err:
+      return "ERROR";
+    case spdlog::level::critical:
+      return "CRITICAL";
+    case spdlog::level::off:
+      return "OFF";
+    default:
+      return "INFO";
+  }
+}
+
+class UppercaseLevelFormatter final : public spdlog::custom_flag_formatter {
+ public:
+  void format(const spdlog::details::log_msg& msg, const std::tm&, spdlog::memory_buf_t& dest) override {
+    std::string_view level_name = ToPatternLevelName(msg.level);
+    if (padinfo_.truncate_ && padinfo_.width_ < level_name.size()) {
+      level_name = level_name.substr(0, padinfo_.width_);
+    }
+
+    const std::size_t padding = padinfo_.enabled() && padinfo_.width_ > level_name.size()
+                                  ? padinfo_.width_ - level_name.size()
+                                  : 0;
+    const auto append_padding = [&](std::size_t count) {
+      for (std::size_t index = 0; index < count; ++index) {
+        dest.push_back(' ');
+      }
+    };
+
+    if (padding != 0 && padinfo_.side_ == spdlog::details::padding_info::pad_side::left) {
+      append_padding(padding);
+    } else if (padding != 0 && padinfo_.side_ == spdlog::details::padding_info::pad_side::center) {
+      const std::size_t left_padding = padding / 2;
+      append_padding(left_padding);
+    }
+
+    spdlog::details::fmt_helper::append_string_view(
+      spdlog::string_view_t(level_name.data(), level_name.size()), dest);
+
+    if (padding != 0 && padinfo_.side_ == spdlog::details::padding_info::pad_side::right) {
+      append_padding(padding);
+    } else if (padding != 0 && padinfo_.side_ == spdlog::details::padding_info::pad_side::center) {
+      const std::size_t left_padding = padding / 2;
+      append_padding(padding - left_padding);
+    }
+  }
+
+  std::unique_ptr<spdlog::custom_flag_formatter> clone() const override {
+    return std::make_unique<UppercaseLevelFormatter>();
+  }
+};
 
 struct State {
   mutable std::mutex mutex;
@@ -345,18 +407,23 @@ void WaitForActiveLogsUnlocked(State& state, Lock& lock) {
 }
 
 void ConfigureSinkFormattersUnlocked(State& state) {
+  const auto make_formatter = [](const std::string& pattern) -> std::unique_ptr<spdlog::formatter> {
+    auto formatter = std::make_unique<spdlog::pattern_formatter>(spdlog::pattern_time_type::local);
+    formatter->add_flag<UppercaseLevelFormatter>('l');
+    formatter->set_pattern(pattern);
+    return formatter;
+  };
+
   const std::string pattern = state.configuration.output_format == OutputFormat::kJson ? "%v" : state.configuration.file.pattern;
 
   std::size_t sink_index = 0;
   if (state.configuration.file.enabled && sink_index < state.sinks.size()) {
-    state.sinks[sink_index++]->set_formatter(
-      std::make_unique<spdlog::pattern_formatter>(pattern, spdlog::pattern_time_type::local));
+    state.sinks[sink_index++]->set_formatter(make_formatter(pattern));
   }
   if (state.configuration.console.enabled && sink_index < state.sinks.size()) {
     const std::string console_pattern =
       state.configuration.output_format == OutputFormat::kJson ? "%v" : state.configuration.console.pattern;
-    state.sinks[sink_index++]->set_formatter(
-      std::make_unique<spdlog::pattern_formatter>(console_pattern, spdlog::pattern_time_type::local));
+    state.sinks[sink_index++]->set_formatter(make_formatter(console_pattern));
   }
 }
 
@@ -458,10 +525,10 @@ bool ValidateConfiguration(const Configuration& configuration, std::string* erro
     }
     return false;
   }
-  if (configuration.file.retention_days < 0 ||
-      configuration.file.retention_days > static_cast<int>(std::numeric_limits<std::uint16_t>::max())) {
+  if (configuration.file.max_files < 0 ||
+      configuration.file.max_files > static_cast<int>(std::numeric_limits<std::uint16_t>::max())) {
     if (error_message != nullptr) {
-      *error_message = "retention_days must be in the range [0, 65535].";
+      *error_message = "max_files must be in the range [0, 65535].";
     }
     return false;
   }
@@ -537,7 +604,7 @@ bool Configure(const Configuration& configuration, std::string* error_message) {
       state.sinks.push_back(MakeConfiguredSink(
         std::make_shared<spdlog::sinks::daily_file_sink_mt>(configuration.file.path, configuration.file.rotation_hour,
                                                             configuration.file.rotation_minute, false,
-                                                            static_cast<std::uint16_t>(configuration.file.retention_days)),
+                                                            static_cast<std::uint16_t>(configuration.file.max_files)),
         configuration.file, false));
     }
 

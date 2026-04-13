@@ -75,6 +75,21 @@ int main() {
     return 1;
   }
 
+  const std::filesystem::path legacy_file_field_path = build_root / "legacy_file_field.json";
+  if (!platform_logging_test::WriteFile(legacy_file_field_path, R"({"file":{"retention_days":7}})")) {
+    std::cerr << "Failed to write legacy file field config\n";
+    return 1;
+  }
+  if (platform_logging::LoadConfiguration(legacy_file_field_path.string(), build_root.string(), &configuration,
+                                          &error_message)) {
+    std::cerr << "LoadConfiguration should reject legacy file.retention_days field\n";
+    return 1;
+  }
+  if (error_message.find("file.max_files") == std::string::npos) {
+    std::cerr << "Unexpected legacy file field rejection error message\n";
+    return 1;
+  }
+
   const std::filesystem::path valid_config_path = build_root / "valid_config.json";
   if (!platform_logging_test::WriteFile(
         valid_config_path,
@@ -94,6 +109,7 @@ int main() {
   "file": {
     "enabled": false,
     "level": "debug",
+    "max_files": 14,
     "pattern": "[file] [%s:%#] %v"
   }
 })")) {
@@ -121,6 +137,10 @@ int main() {
   }
   if (configuration.console.channels.size() != 1 || configuration.console.channels.front() != "status") {
     std::cerr << "Unexpected console channel configuration values\n";
+    return 1;
+  }
+  if (configuration.file.max_files != 14) {
+    std::cerr << "Unexpected file.max_files configuration value\n";
     return 1;
   }
   if (!configuration.async || configuration.async_worker_count != 3 || configuration.queue_size != 2048) {

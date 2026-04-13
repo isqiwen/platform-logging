@@ -213,13 +213,13 @@ bool ParseFileSinkConfig(const nlohmann::json& root, FileSinkConfig* sink, std::
                                       &sink->rotation_minute, 59, error_message)) {
     return false;
   }
-  if (!ReadOptionalNonNegativeInteger(root, "retention_days", MakeFieldPath("file", "retention_days"),
-                                      &sink->retention_days, std::numeric_limits<std::uint16_t>::max(),
+  if (!ReadOptionalNonNegativeInteger(root, "max_files", MakeFieldPath("file", "max_files"),
+                                      &sink->max_files, std::numeric_limits<std::uint16_t>::max(),
                                       error_message)) {
     return false;
   }
 
-  if (!RejectUnsupportedField(root, "max_files", "Use 'file.retention_days' instead.", error_message)) {
+  if (!RejectUnsupportedField(root, "retention_days", "Use 'file.max_files' instead.", error_message)) {
     return false;
   }
 

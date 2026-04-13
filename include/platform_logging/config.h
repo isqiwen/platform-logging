@@ -36,7 +36,7 @@ struct FileSinkConfig : SinkConfig {
   std::string path = "logs/platform_logging.log";
   int rotation_hour = 0;
   int rotation_minute = 0;
-  int retention_days = 30;
+  int max_files = 30;
 };
 
 struct ConsoleSinkConfig : SinkConfig {

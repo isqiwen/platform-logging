@@ -16,7 +16,7 @@
     "enabled": true,
     "level": "info",
     "path": "logs/platform_logging.log",
-    "retention_days": 30,
+    "max_files": 30,
     "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%P:%t] [%n] [%s:%#] %v",
     "channels": []
   }

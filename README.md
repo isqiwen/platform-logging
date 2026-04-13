@@ -147,12 +147,14 @@ config/logging_config.json
 - `console.console_color` 默认是 `true`，可在配置里关闭彩色 console 输出
 - `async_worker_count` 默认是 `1`
 - `console.level` 和 `file.level` 分别控制各自 sink 的最低日志级别
+- 支持的日志级别是 `TRACE / DEBUG / INFO / WARN / ERROR / CRITICAL`，配置文件里使用小写字符串
+- 文本 pattern 中的 `%l` 会输出大写级别名；JSON 的 `level` 字段仍保持小写
 - `console.pattern` 和 `file.pattern` 分别控制各自 sink 的文本格式
 - `console.channels` 和 `file.channels` 控制各自 sink 接收哪些 channel；空数组表示接收全部 channel
 - 未显式指定 channel 的日志会落到默认 channel `default`
 - 文件日志按天滚动
 - 默认每天本地时间 `00:00` 滚动
-- 默认保留 `30` 天
+- `file.max_files` 默认是 `30`，表示最多保留 `30` 个滚动文件
 
 默认配置结构：
 
@@ -175,7 +177,7 @@ config/logging_config.json
     "enabled": true,
     "level": "info",
     "path": "logs/platform_logging.log",
-    "retention_days": 30,
+    "max_files": 30,
     "pattern": "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%P:%t] [%n] [%s:%#] %v",
     "channels": []
   }

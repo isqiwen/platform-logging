@@ -13,7 +13,7 @@ int main() {
   configuration.logger_name = "platform_logging_text_test";
   configuration.console.enabled = false;
   configuration.output_format = platform_logging::OutputFormat::kText;
-  configuration.file.pattern = "[FILE] [%s:%#] %v";
+  configuration.file.pattern = "[FILE] [%l] [%s:%#] %v";
   configuration.file.channels = {"status"};
   configuration.file.path = (build_root / "platform_logging_text_test.log").string();
 
@@ -42,6 +42,14 @@ int main() {
   }
   if (log_text.find("[FILE]") == std::string::npos) {
     std::cerr << "Missing file pattern prefix\n";
+    return 1;
+  }
+  if (log_text.find("[INFO]") == std::string::npos) {
+    std::cerr << "Expected uppercase level name in text output\n";
+    return 1;
+  }
+  if (log_text.find("[info]") != std::string::npos) {
+    std::cerr << "Unexpected lowercase level name in text output\n";
     return 1;
   }
   if (log_text.find("default text message should be filtered") != std::string::npos) {
